@@ -1,0 +1,20 @@
+# Dependências do Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Variáveis de ambiente e segredos
+.env
+.env.*
+
+# Banco de dados local e Prisma (se gerado localmente)
+.prisma/
+
+# Arquivos do Sistema Operacional
+.DS_Store
+Thumbs.db
+
+# Arquivos temporários de compilação de hardware (se usar PlatformIO ou Arduino IDE)
+.pio/
+build/
