@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>S.I.N.C — Monitoramento Cardíaco em Tempo Real</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js para visualização de séries temporais -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Fonte Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        slate: {
+                            850: '#151e32',
+                            900: '#0f172a',
+                            950: '#090d16',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Efeitos sutis de brilho e animações de pulso cardíaco */
+        @keyframes heartbeat {
+            0%, 100% { transform: scale(1); }
+            15% { transform: scale(1.18); }
+            30% { transform: scale(1); }
+            45% { transform: scale(1.12); }
+        }
+        .animate-heartbeat {
+            animation: heartbeat 1.4s infinite ease-in-out;
+        }
+        .glow-emerald {
+            box-shadow: 0 0 24px -6px rgba(16, 185, 129, 0.25);
+        }
+        .glow-red {
+            box-shadow: 0 0 28px -4px rgba(244, 63, 94, 0.35);
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans antialiased min-h-screen flex flex-col selection:bg-emerald-500/30 selection:text-emerald-200">
+
+    <!-- Barra Superior (Header) -->
+    <header class="sticky top-0 z-30 bg-slate-950/85 backdrop-blur-md border-b border-slate-800/80">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+            <!-- Identidade Visual -->
+            <div class="flex items-center gap-3">
+                <div id="header-pulse-badge" class="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                    <svg class="w-6 h-6 animate-heartbeat" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                    </svg>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <h1 class="text-lg sm:text-xl font-bold tracking-tight text-white">S.I.N.C</h1>
+                        <span class="hidden sm:inline-block text-xs font-medium px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">ESP32 Telemetry</span>
+                    </div>
+                    <p class="text-xs text-slate-400">Monitoramento Cardíaco &amp; Alertas Vitais</p>
+                </div>
+            </div>
+
+            <!-- Indicador de Status da API -->
+            <div class="flex items-center gap-3">
+                <div id="api-status-pill" class="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-slate-900 border border-slate-800 text-slate-300">
+                    <span id="api-status-dot" class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+                    <span id="api-status-text">Verificando API...</span>
+                </div>
+                <button onclick="syncWithApi()" title="Sincronizar com http://localhost:3000" class="p-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-white transition-colors">
+                    <svg id="sync-icon" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Notificação Toast (Feedback sem alert()) -->
+    <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none px-4 sm:px-0"></div>
+
+    <!-- Conteúdo Principal -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6">
+
+        <!-- Grade de KPIs (4 Cards) -->
+        <section aria-label="Indicadores Principais" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
+            
+            <!-- KPI 1: Último BPM Registrado -->
+            <div id="card-current-bpm" class="rounded-2xl bg-slate-900/90 border border-slate-800 p-5 transition-all duration-300 glow-emerald">
+                <div class="flex items-center justify-between mb-3">
+                    <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Último BPM Registrado</span>
+                    <span id="current-status-badge" class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">Normal</span>
+                </div>
+                <div class="flex items-baseline gap-2">
+                    <span id="kpi-current-bpm" class="text-4xl font-extrabold tracking-tight text-white">--</span>
+                    <span class="text-sm font-medium text-slate-400">BPM</span>
+                </div>
+                <p id="kpi-current-time" class="mt-2 text-xs text-slate-500">Aguardando leitura...</p>
+            </div>
+
+            <!-- KPI 2: Média Diária -->
+            <div class="rounded-2xl bg-slate-900/90 border border-slate-800 p-5">
+                <div class="flex items-center justify-between mb-3">
+                    <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Média Diária</span>
+                    <div class="w-8 h-8 rounded-lg bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
+                        </svg>
+                    </div>
+                </div>
+                <div class="flex items-baseline gap-2">
+                    <span id="kpi-avg-bpm" class="text-4xl font-extrabold tracking-tight text-white">--</span>
+                    <span class="text-sm font-medium text-slate-400">BPM</span>
+                </div>
+                <p class="mt-2 text-xs text-slate-500">Baseado em <span id="kpi-total-count" class="text-slate-300 font-medium">0</span> amostras registradas</p>
+            </div>
+
+            <!-- KPI 3: BPM Máximo / Mínimo -->
+            <div class="rounded-2xl bg-slate-900/90 border border-slate-800 p-5">
+                <div class="flex items-center justify-between mb-3">
+                    <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Amplitude (Máx / Mín)</span>
+                    <div class="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"/>
+                        </svg>
+                    </div>
+                </div>
+                <div class="flex items-baseline gap-2">
+                    <span id="kpi-max-bpm" class="text-3xl font-extrabold tracking-tight text-rose-400">--</span>
+                    <span class="text-slate-600 font-bold">/</span>
+                    <span id="kpi-min-bpm" class="text-3xl font-extrabold tracking-tight text-emerald-400">--</span>
+                    <span class="text-xs font-medium text-slate-400">BPM</span>
+                </div>
+                <p class="mt-2 text-xs text-slate-500">Pico máximo e repouso mínimo</p>
+            </div>
+
+            <!-- KPI 4: Total de Alertas Críticos -->
+            <div id="card-alerts" class="rounded-2xl bg-slate-900/90 border border-slate-800 p-5 transition-all duration-300">
+                <div class="flex items-center justify-between mb-3">
+                    <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Alertas Críticos</span>
+                    <div class="w-8 h-8 rounded-lg bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                        </svg>
+                    </div>
+                </div>
+                <div class="flex items-baseline gap-2">
+                    <span id="kpi-alert-count" class="text-4xl font-extrabold tracking-tight text-rose-400">0</span>
+                    <span class="text-sm font-medium text-slate-400">ocorrências</span>
+                </div>
+                <p class="mt-2 text-xs text-slate-500">Limiar crítico: <span class="text-rose-400/90 font-medium">&gt; 120 BPM</span> (Buzzer)</p>
+            </div>
+
+        </section>
+
+        <!-- Seção Central: Gráfico Interativo + Painel Simular Leitura / Modo API -->
+        <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            <!-- Gráfico de Linha Chart.js (2 colunas no desktop) -->
+            <div class="lg:col-span-2 rounded-2xl bg-slate-900/90 border border-slate-800 p-5 sm:p-6 flex flex-col justify-between">
+                <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+                    <div>
+                        <h2 class="text-base sm:text-lg font-bold text-white">Curva de Frequência Cardíaca</h2>
+                        <p class="text-xs text-slate-400">Histórico temporal com destaque automático acima de 120 BPM</p>
+                    </div>
+                    <div class="flex items-center gap-4 text-xs">
+                        <span class="flex items-center gap-1.5 text-slate-300">
+                            <span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span> Normal (&le;120)
+                        </span>
+                        <span class="flex items-center gap-1.5 text-slate-300">
+                            <span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span> Alerta (&gt;120)
+                        </span>
+                    </div>
+                </div>
+                
+                <!-- Container Responsivo do Canvas -->
+                <div class="relative w-full h-64 sm:h-72">
+                    <canvas id="bpmChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Painel Simular Leitura / Modo API (1 coluna no desktop) -->
+            <div class="rounded-2xl bg-slate-900/90 border border-slate-800 p-5 sm:p-6 flex flex-col justify-between space-y-5">
+                <div>
+                    <div class="flex items-center justify-between gap-2 mb-1">
+                        <h2 class="text-base sm:text-lg font-bold text-white">Simular Leitura / Modo API</h2>
+                        <span class="px-2 py-0.5 text-[11px] font-mono rounded bg-slate-800 text-emerald-400 border border-slate-700">POST /readings</span>
+                    </div>
+                    <p class="text-xs text-slate-400">Envie medições simulando o ESP32 diretamente para a API local ou modo demonstração.</p>
+
+                    <!-- Seletor de Modo de Operação -->
+                    <div class="mt-4 p-1 rounded-xl bg-slate-950 border border-slate-800 grid grid-cols-2 gap-1">
+                        <button type="button" id="btn-mode-auto" onclick="setOperationMode('auto')" class="py-2 px-3 rounded-lg text-xs font-semibold bg-slate-800 text-white shadow transition-all">
+                            API + Fallback Local
+                        </button>
+                        <button type="button" id="btn-mode-mock" onclick="setOperationMode('mock')" class="py-2 px-3 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition-all">
+                            Apenas Simulação
+                        </button>
+                    </div>
+
+                    <!-- Formulário de Simulação -->
+                    <form id="simulate-form" onsubmit="handleSimulateSubmit(event)" class="mt-4 space-y-4">
+                        <div>
+                            <div class="flex items-center justify-between mb-1.5">
+                                <label for="input-bpm" class="text-xs font-medium text-slate-300">Frequência Cardíaca (BPM)</label>
+                                <span id="preview-status-tag" class="text-[11px] font-semibold text-emerald-400">Status: Normal</span>
+                            </div>
+                            <div class="relative">
+                                <input type="number" id="input-bpm" min="30" max="250" value="88" required
+                                    oninput="updateSimulationPreview(this.value)"
+                                    class="w-full rounded-xl bg-slate-950 border border-slate-700 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 px-4 py-2.5 text-white font-bold text-lg outline-none transition-all">
+                                <span class="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-500">BPM</span>
+                            </div>
+                        </div>
+
+                        <!-- Atalhos Rápidos de Cenário -->
+                        <div>
+                            <span class="block text-[11px] font-medium text-slate-400 mb-1.5">Cenários rápidos de teste:</span>
+                            <div class="grid grid-cols-3 gap-2">
+                                <button type="button" onclick="applyPreset(72)" class="py-1.5 px-2 rounded-lg bg-slate-800/80 hover:bg-emerald-500/15 border border-slate-700 hover:border-emerald-500/40 text-xs font-medium text-slate-200 hover:text-emerald-300 transition-colors">
+                                    Repouso (72)
+                                </button>
+                                <button type="button" onclick="applyPreset(110)" class="py-1.5 px-2 rounded-lg bg-slate-800/80 hover:bg-amber-500/15 border border-slate-700 hover:border-amber-500/40 text-xs font-medium text-slate-200 hover:text-amber-300 transition-colors">
+                                    Caminhada (110)
+                                </button>
+                                <button type="button" onclick="applyPreset(165)" class="py-1.5 px-2 rounded-lg bg-slate-800/80 hover:bg-rose-500/15 border border-slate-700 hover:border-rose-500/40 text-xs font-medium text-slate-200 hover:text-rose-300 transition-colors">
+                                    Alerta (165)
+                                </button>
+                            </div>
+                        </div>
+
+                        <button type="submit" id="btn-submit-reading" class="w-full py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-[0.99] text-white font-semibold text-sm shadow-lg shadow-emerald-950/50 transition-all flex items-center justify-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+                            </svg>
+                            <span>Registrar Leitura</span>
+                        </button>
+                    </form>
+                </div>
+
+                <div class="pt-3 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-500">
+                    <span>Endpoint: <code class="text-slate-300">localhost:3000</code></span>
+                    <button type="button" onclick="resetMockData()" class="text-slate-400 hover:text-rose-400 underline transition-colors">Restaurar dados iniciais</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Tabela Estruturada e Filtrável de Histórico -->
+        <section class="rounded-2xl bg-slate-900/90 border border-slate-800 overflow-hidden">
+            <div class="p-5 sm:p-6 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                    <h2 class="text-base sm:text-lg font-bold text-white">Histórico de Leituras (HeartRateLog)</h2>
+                    <p class="text-xs text-slate-400">Registros armazenados via Prisma ORM / PostgreSQL ou sessão local</p>
+                </div>
+
+                <!-- Filtros da Tabela -->
+                <div class="flex flex-wrap items-center gap-2">
+                    <div class="inline-flex rounded-xl bg-slate-950 p-1 border border-slate-800">
+                        <button type="button" onclick="setTableFilter('all')" id="filter-all" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 text-white transition-all">
+                            Todas
+                        </button>
+                        <button type="button" onclick="setTableFilter('normal')" id="filter-normal" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-emerald-400 transition-all">
+                            Normais
+                        </button>
+                        <button type="button" onclick="setTableFilter('alert')" id="filter-alert" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-rose-400 transition-all">
+                            Alertas Críticos
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tabela Responsiva -->
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-slate-950/60 border-b border-slate-800 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                            <th class="py-3.5 px-5">ID</th>
+                            <th class="py-3.5 px-5">Data / Hora</th>
+                            <th class="py-3.5 px-5">Frequência (BPM)</th>
+                            <th class="py-3.5 px-5">Status Clínico</th>
+                            <th class="py-3.5 px-5 text-right">Origem</th>
+                        </tr>
+                    </thead>
+                    <tbody id="readings-table-body" class="divide-y divide-slate-800/70 text-sm">
+                        <!-- Preenchido via JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+    </main>
+
+    <script>
+        /**
+         * Configuração e Estado Global da Aplicação
+         */
+        const API_BASE_URL = 'http://localhost:3000';
+        const ALERT_THRESHOLD = 120; // Limiar clínico (> 120 BPM aciona alerta crítico)
+
+        // Dados iniciais realistas incluindo o registro ID 2 (BPM 200) validado no Postman
+        const INITIAL_MOCK_READINGS = [
+            { id: 1, bpm: 78, isAlert: false, createdAt: '2026-11-15T22:55:10.000Z', source: 'PostgreSQL (Seed)' },
+            { id: 2, bpm: 200, isAlert: true, createdAt: '2026-11-15T23:10:57.357Z', source: 'Postman / API' },
+            { id: 3, bpm: 85, isAlert: false, createdAt: '2026-11-15T23:14:22.000Z', source: 'ESP32 Simulado' },
+            { id: 4, bpm: 92, isAlert: false, createdAt: '2026-11-15T23:18:05.000Z', source: 'ESP32 Simulado' },
+            { id: 5, bpm: 138, isAlert: true, createdAt: '2026-11-15T23:21:40.000Z', source: 'ESP32 Simulado' },
+            { id: 6, bpm: 81, isAlert: false, createdAt: '2026-11-15T23:25:12.000Z', source: 'ESP32 Simulado' }
+        ];
+
+        let readings = [];
+        let currentFilter = 'all'; // 'all' | 'normal' | 'alert'
+        let operationMode = 'auto'; // 'auto' (tenta localhost:3000 e faz fallback) | 'mock'
+        let isApiOnline = false;
+        let bpmChartInstance = null;
+
+        /**
+         * Inicialização ao carregar a página
+         */
+        document.addEventListener('DOMContentLoaded', async () => {
+            loadLocalFallbackData();
+            initChart();
+            renderDashboard();
+            await syncWithApi(true);
+        });
+
+        /**
+         * Carrega dados do localStorage ou usa os mocks iniciais
+         */
+        function loadLocalFallbackData() {
+            const saved = localStorage.getItem('sinc_heart_readings');
+            if (saved) {
+                try {
+                    readings = JSON.parse(saved);
+                } catch (e) {
+                    readings = [...INITIAL_MOCK_READINGS];
+                }
+            } else {
+                readings = [...INITIAL_MOCK_READINGS];
+            }
+        }
+
+        function saveLocalFallbackData() {
+            localStorage.setItem('sinc_heart_readings', JSON.stringify(readings));
+        }
+
+        function resetMockData() {
+            readings = [...INITIAL_MOCK_READINGS];
+            saveLocalFallbackData();
+            renderDashboard();
+            showToast('Dados de demonstração restaurados (incluindo ID 2 — 200 BPM).', 'info');
+        }
+
+        /**
+         * Tenta conectar à API local (http://localhost:3000)
+         */
+        async function syncWithApi(silent = false) {
+            const syncIcon = document.getElementById('sync-icon');
+            syncIcon.classList.add('animate-spin');
+
+            if (operationMode === 'mock') {
+                updateApiStatusBadge(false, 'Modo Simulação Local');
+                syncIcon.classList.remove('animate-spin');
+                return;
+            }
+
+            try {
+                // Verifica se o servidor Express está ativo na raiz ou em /readings
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 2000);
+
+                const response = await fetch(`${API_BASE_URL}/`, { signal: controller.signal });
+                clearTimeout(timeoutId);
+
+                if (response.ok) {
+                    isApiOnline = true;
+                    updateApiStatusBadge(true, 'API Online (localhost:3000)');
+
+                    // Tenta buscar histórico caso a rota GET /readings exista no backend
+                    try {
+                        const listRes = await fetch(`${API_BASE_URL}/readings`);
+                        if (listRes.ok) {
+                            const data = await listRes.json();
+                            const list = Array.isArray(data) ? data : (data.dados || data.readings);
+                            if (Array.isArray(list) && list.length > 0) {
+                                readings = list.map(item => ({
+                                    ...item,
+                                    isAlert: item.isAlert ?? (item.bpm > ALERT_THRESHOLD),
+                                    source: 'PostgreSQL API'
+                                }));
+                                saveLocalFallbackData();
+                                renderDashboard();
+                            }
+                        }
+                    } catch (_) {
+                        // Rota GET /readings opcional ainda não implementada; mantém dados locais + POST ativo
+                    }
+
+                    if (!silent) showToast('Conectado com sucesso ao backend Node.js!', 'success');
+                } else {
+                    throw new Error('Status não OK');
+                }
+            } catch (error) {
+                isApiOnline = false;
+                updateApiStatusBadge(false, 'Offline (Fallback Ativo)');
+                if (!silent) {
+                    showToast('Servidor localhost:3000 inacessível. Operando com dados locais.', 'warning');
+                }
+            } finally {
+                syncIcon.classList.remove('animate-spin');
+            }
+        }
+
+        function updateApiStatusBadge(online, text) {
+            const dot = document.getElementById('api-status-dot');
+            const label = document.getElementById('api-status-text');
+            const pill = document.getElementById('api-status-pill');
+
+            label.textContent = text;
+            if (online) {
+                dot.className = 'w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]';
+                pill.className = 'flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-emerald-950/50 border border-emerald-500/30 text-emerald-300';
+            } else {
+                dot.className = 'w-2 h-2 rounded-full bg-amber-400';
+                pill.className = 'flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-slate-900 border border-slate-800 text-slate-300';
+            }
+        }
+
+        function setOperationMode(mode) {
+            operationMode = mode;
+            const btnAuto = document.getElementById('btn-mode-auto');
+            const btnMock = document.getElementById('btn-mode-mock');
+
+            if (mode === 'auto') {
+                btnAuto.className = 'py-2 px-3 rounded-lg text-xs font-semibold bg-slate-800 text-white shadow transition-all';
+                btnMock.className = 'py-2 px-3 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition-all';
+                syncWithApi(true);
+            } else {
+                btnMock.className = 'py-2 px-3 rounded-lg text-xs font-semibold bg-slate-800 text-white shadow transition-all';
+                btnAuto.className = 'py-2 px-3 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition-all';
+                isApiOnline = false;
+                updateApiStatusBadge(false, 'Modo Simulação Local');
+            }
+        }
+
+        /**
+         * Manipula o envio de nova leitura (POST /readings ou Fallback Local)
+         */
+        async function handleSimulateSubmit(event) {
+            event.preventDefault();
+            const input = document.getElementById('input-bpm');
+            const bpmValue = parseInt(input.value, 10);
+
+            if (isNaN(bpmValue) || bpmValue < 30 || bpmValue > 250) {
+                showToast('Insira um valor de BPM válido entre 30 e 250.', 'error');
+                return;
+            }
+
+            const isAlert = bpmValue > ALERT_THRESHOLD;
+            const payload = { bpm: bpmValue, isAlert };
+
+            // Tenta enviar via POST para http://localhost:3000/readings se não estiver em modo exclusivamente mock
+            if (operationMode === 'auto') {
+                try {
+                    const response = await fetch(`${API_BASE_URL}/readings`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (response.ok) {
+                        const result = await response.json();
+                        const savedRecord = result.dados || {
+                            id: readings.length ? Math.max(...readings.map(r => r.id)) + 1 : 1,
+                            bpm: bpmValue,
+                            isAlert,
+                            createdAt: new Date().toISOString()
+                        };
+
+                        readings.push({
+                            ...savedRecord,
+                            source: 'PostgreSQL API'
+                        });
+                        saveLocalFallbackData();
+                        renderDashboard();
+                        isApiOnline = true;
+                        updateApiStatusBadge(true, 'API Online (localhost:3000)');
+
+                        showToast(
+                            isAlert
+                                ? `ALERTA CRÍTICO (${bpmValue} BPM) gravado no PostgreSQL!`
+                                : `Leitura (${bpmValue} BPM) gravada no PostgreSQL!`,
+                            isAlert ? 'error' : 'success'
+                        );
+                        return;
+                    }
+                } catch (err) {
+                    // Falha de rede -> prossegue silenciosamente para o fallback local
+                    isApiOnline = false;
+                    updateApiStatusBadge(false, 'Offline (Fallback Ativo)');
+                }
+            }
+
+            // Fallback Local (quando API está offline ou modo simulação está selecionado)
+            const nextId = readings.length ? Math.max(...readings.map(r => r.id)) + 1 : 1;
+            const newLocalReading = {
+                id: nextId,
+                bpm: bpmValue,
+                isAlert,
+                createdAt: new Date().toISOString(),
+                source: 'Simulador Local'
+            };
+
+            readings.push(newLocalReading);
+            saveLocalFallbackData();
+            renderDashboard();
+
+            showToast(
+                isAlert
+                    ? `Alerta Crítico (${bpmValue} BPM) simulado localmente!`
+                    : `Leitura (${bpmValue} BPM) simulada localmente.`,
+                isAlert ? 'error' : 'success'
+            );
+        }
+
+        function applyPreset(bpm) {
+            const input = document.getElementById('input-bpm');
+            input.value = bpm;
+            updateSimulationPreview(bpm);
+        }
+
+        function updateSimulationPreview(val) {
+            const bpm = parseInt(val, 10);
+            const tag = document.getElementById('preview-status-tag');
+            if (!isNaN(bpm) && bpm > ALERT_THRESHOLD) {
+                tag.textContent = 'Status: Alerta Crítico (>120)';
+                tag.className = 'text-[11px] font-semibold text-rose-400';
+            } else {
+                tag.textContent = 'Status: Normal';
+                tag.className = 'text-[11px] font-semibold text-emerald-400';
+            }
+        }
+
+        /**
+         * Atualização Completa da Interface (KPIs, Gráfico e Tabela)
+         */
+        function renderDashboard() {
+            // Ordena por ID/Data crescente para cálculos e gráfico
+            const sorted = [...readings].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+            updateKPIs(sorted);
+            updateChart(sorted);
+            renderTable(sorted);
+        }
+
+        function updateKPIs(sorted) {
+            if (sorted.length === 0) return;
+
+            const latest = sorted[sorted.length - 1];
+            const bpmValues = sorted.map(r => r.bpm);
+            const sum = bpmValues.reduce((acc, v) => acc + v, 0);
+            const avg = Math.round(sum / bpmValues.length);
+            const max = Math.max(...bpmValues);
+            const min = Math.min(...bpmValues);
+            const alerts = sorted.filter(r => r.isAlert || r.bpm > ALERT_THRESHOLD).length;
+
+            // KPI 1: Último BPM
+            const elCurrentBpm = document.getElementById('kpi-current-bpm');
+            const elCurrentTime = document.getElementById('kpi-current-time');
+            const elCurrentBadge = document.getElementById('current-status-badge');
+            const cardCurrent = document.getElementById('card-current-bpm');
+            const headerBadge = document.getElementById('header-pulse-badge');
+
+            elCurrentBpm.textContent = latest.bpm;
+            elCurrentTime.textContent = `Registrado em ${formatDateTime(latest.createdAt)}`;
+
+            const latestIsAlert = latest.isAlert || latest.bpm > ALERT_THRESHOLD;
+            if (latestIsAlert) {
+                elCurrentBadge.textContent = 'Alerta Crítico';
+                elCurrentBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-500/20 text-rose-400 border border-rose-500/40';
+                cardCurrent.className = 'rounded-2xl bg-slate-900/90 border border-rose-500/50 p-5 transition-all duration-300 glow-red';
+                headerBadge.className = 'w-10 h-10 rounded-xl bg-rose-500/15 border border-rose-500/40 flex items-center justify-center text-rose-400';
+            } else {
+                elCurrentBadge.textContent = 'Normal';
+                elCurrentBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30';
+                cardCurrent.className = 'rounded-2xl bg-slate-900/90 border border-slate-800 p-5 transition-all duration-300 glow-emerald';
+                headerBadge.className = 'w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400';
+            }
+
+            // KPI 2, 3 e 4
+            document.getElementById('kpi-avg-bpm').textContent = avg;
+            document.getElementById('kpi-total-count').textContent = sorted.length;
+            document.getElementById('kpi-max-bpm').textContent = max;
+            document.getElementById('kpi-min-bpm').textContent = min;
+            document.getElementById('kpi-alert-count').textContent = alerts;
+        }
+
+        /**
+         * Configuração e Atualização do Gráfico Chart.js
+         */
+        function initChart() {
+            const ctx = document.getElementById('bpmChart').getContext('2d');
+
+            // Gradiente sutil sob a linha
+            const gradient = ctx.createLinearGradient(0, 0, 0, 280);
+            gradient.addColorStop(0, 'rgba(16, 185, 129, 0.25)');
+            gradient.addColorStop(1, 'rgba(16, 185, 129, 0.0)');
+
+            bpmChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'Frequência Cardíaca (BPM)',
+                            data: [],
+                            borderColor: '#10b981',
+                            backgroundColor: gradient,
+                            borderWidth: 2.5,
+                            fill: true,
+                            tension: 0.35,
+                            pointRadius: 5,
+                            pointHoverRadius: 7,
+                            pointBackgroundColor: [],
+                            pointBorderColor: '#0f172a',
+                            pointBorderWidth: 2,
+                            segment: {
+                                borderColor: ctx => {
+                                    const p0 = ctx.p0.parsed.y;
+                                    const p1 = ctx.p1.parsed.y;
+                                    return (p0 > ALERT_THRESHOLD || p1 > ALERT_THRESHOLD) ? '#f43f5e' : '#10b981';
+                                }
+                            }
+                        },
+                        {
+                            label: 'Limiar Crítico (120 BPM)',
+                            data: [],
+                            borderColor: 'rgba(244, 63, 94, 0.5)',
+                            borderWidth: 1.5,
+                            borderDash: [6, 6],
+                            pointRadius: 0,
+                            fill: false,
+                            tension: 0
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            backgroundColor: '#0f172a',
+                            titleColor: '#f8fafc',
+                            bodyColor: '#cbd5e1',
+                            borderColor: '#334155',
+                            borderWidth: 1,
+                            padding: 12,
+                            displayColors: true,
+                            callbacks: {
+                                label: function(context) {
+                                    if (context.datasetIndex === 1) return ' Limiar Crítico: 120 BPM';
+                                    const val = context.parsed.y;
+                                    const status = val > ALERT_THRESHOLD ? '⚠️ ALERTA CRÍTICO' : '✅ Normal';
+                                    return ` ${val} BPM (${status})`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: {
+                                color: 'rgba(51, 65, 85, 0.35)',
+                                drawBorder: false
+                            },
+                            ticks: {
+                                color: '#94a3b8',
+                                font: { size: 11, family: 'Inter' }
+                            }
+                        },
+                        y: {
+                            min: 40,
+                            suggestedMax: 210,
+                            grid: {
+                                color: 'rgba(51, 65, 85, 0.35)',
+                                drawBorder: false
+                            },
+                            ticks: {
+                                color: '#94a3b8',
+                                font: { size: 11, family: 'Inter' }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateChart(sorted) {
+            if (!bpmChartInstance) return;
+
+            // Exibe as últimas 15 leituras no gráfico para manter clareza visual
+            const recent = sorted.slice(-15);
+
+            const labels = recent.map(r => formatTimeOnly(r.createdAt));
+            const dataPoints = recent.map(r => r.bpm);
+            const pointColors = recent.map(r => (r.isAlert || r.bpm > ALERT_THRESHOLD) ? '#f43f5e' : '#10b981');
+            const thresholdLine = recent.map(() => ALERT_THRESHOLD);
+
+            bpmChartInstance.data.labels = labels;
+            bpmChartInstance.data.datasets[0].data = dataPoints;
+            bpmChartInstance.data.datasets[0].pointBackgroundColor = pointColors;
+            bpmChartInstance.data.datasets[1].data = thresholdLine;
+            bpmChartInstance.update();
+        }
+
+        /**
+         * Filtragem e Renderização da Tabela
+         */
+        function setTableFilter(filter) {
+            currentFilter = filter;
+            ['all', 'normal', 'alert'].forEach(key => {
+                const btn = document.getElementById(`filter-${key}`);
+                if (key === filter) {
+                    btn.className = 'px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 text-white transition-all';
+                } else {
+                    btn.className = 'px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition-all';
+                }
+            });
+            renderDashboard();
+        }
+
+        function renderTable(sorted) {
+            const tbody = document.getElementById('readings-table-body');
+            // Ordem decrescente (mais recentes primeiro)
+            const descending = [...sorted].reverse();
+
+            const filtered = descending.filter(item => {
+                const isAlert = item.isAlert || item.bpm > ALERT_THRESHOLD;
+                if (currentFilter === 'alert') return isAlert;
+                if (currentFilter === 'normal') return !isAlert;
+                return true;
+            });
+
+            if (filtered.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="5" class="py-10 px-5 text-center text-slate-500 text-sm">
+                            Nenhuma leitura encontrada para o filtro selecionado.
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            tbody.innerHTML = filtered.map(item => {
+                const isAlert = item.isAlert || item.bpm > ALERT_THRESHOLD;
+                const rowHighlight = isAlert ? 'bg-rose-950/15 hover:bg-rose-950/25' : 'hover:bg-slate-800/40';
+                const bpmColor = isAlert ? 'text-rose-400 font-extrabold' : 'text-emerald-400 font-bold';
+                const statusBadge = isAlert
+                    ? `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-500/15 text-rose-400 border border-rose-500/30">
+                         <span class="w-1.5 h-1.5 rounded-full bg-rose-400 animate-ping"></span>
+                         Alerta Crítico
+                       </span>`
+                    : `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                         <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                         Normal
+                       </span>`;
+
+                return `
+                    <tr class="${rowHighlight} transition-colors">
+                        <td class="py-3.5 px-5 font-mono text-xs text-slate-400">#${item.id}</td>
+                        <td class="py-3.5 px-5 text-slate-300">${formatDateTime(item.createdAt)}</td>
+                        <td class="py-3.5 px-5 text-base ${bpmColor}">${item.bpm} <span class="text-xs font-normal text-slate-500">BPM</span></td>
+                        <td class="py-3.5 px-5">${statusBadge}</td>
+                        <td class="py-3.5 px-5 text-right text-xs text-slate-500">${item.source || 'API'}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        /**
+         * Utilitários de Formatação e Notificações
+         */
+        function formatDateTime(isoString) {
+            const d = new Date(isoString);
+            return d.toLocaleString('pt-BR', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+        }
+
+        function formatTimeOnly(isoString) {
+            const d = new Date(isoString);
+            return d.toLocaleTimeString('pt-BR', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+        }
+
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+
+            const styles = {
+                success: 'bg-slate-900 border-emerald-500/50 text-emerald-200',
+                error: 'bg-rose-950/95 border-rose-500/60 text-rose-100',
+                warning: 'bg-slate-900 border-amber-500/50 text-amber-200',
+                info: 'bg-slate-900 border-sky-500/50 text-sky-200'
+            };
+
+            toast.className = `pointer-events-auto rounded-xl border px-4 py-3 text-xs font-medium shadow-xl backdrop-blur-md transition-all duration-300 ${styles[type] || styles.info}`;
+            toast.textContent = message;
+
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateY(8px)';
+                setTimeout(() => toast.remove(), 300);
+            }, 3500);
+        }
+    </script>
+</body>
+</html>
