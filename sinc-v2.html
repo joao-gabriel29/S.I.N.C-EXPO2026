@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Manopla cardíaca – simulador</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#eef3f2;--panel:#fff;--ink:#12242b;--mute:#5d737b;--line:#d3e0dd;--hr:#e5383b;--bb:#1f78d1;--st:#d98a0b;--ok:#1f9d6b;--band:rgba(31,157,107,.12);
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0c1a1f;--panel:#12272e;--ink:#e6f1ef;--mute:#8aa5ac;--line:#244047;--hr:#ff6b6e;--bb:#58a9ff;--st:#f2b049;--ok:#3ed596;--band:rgba(62,213,150,.12)}}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 "IBM Plex Sans",system-ui,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:16px}
+h1{font-size:22px;margin:4px 0 2px}p.sub{margin:0 0 14px;color:var(--mute);max-width:75ch}
+.grid{display:grid;grid-template-columns:1fr 340px;gap:14px}
+@media(max-width:860px){.grid{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:14px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+@media(max-width:560px){.stats{grid-template-columns:repeat(2,1fr)}}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:10px 12px}
+.stat b{display:block;font:500 24px "IBM Plex Mono",monospace}.stat span{color:var(--mute);font-size:12.5px}
+#bpm{font-size:44px;color:var(--hr)}
+.badge{display:inline-block;padding:2px 10px;border-radius:99px;font-weight:600;font-size:13px;background:var(--ok);color:#06150e}
+.badge.warn{background:var(--st);color:#1c1200}.badge.bad{background:var(--hr);color:#fff}
+canvas{width:100%;display:block}
+label{display:flex;justify-content:space-between;font-size:13.5px;margin-top:10px}label output{font-family:"IBM Plex Mono",monospace}
+input[type=range]{width:100%;accent-color:var(--bb)}
+input[type=number]{font:inherit;width:80px;padding:6px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink)}
+.row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+button{font:inherit;font-weight:600;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:9px 12px;border-radius:6px;cursor:pointer;flex:1;min-width:90px}
+button:focus-visible,input:focus-visible{outline:2px solid var(--bb);outline-offset:2px}
+button.bb{background:var(--bb);color:#fff;border-color:var(--bb)}button.st{background:var(--st);color:#1c1200;border-color:var(--st)}
+button.on{box-shadow:inset 0 0 0 2px var(--ok)}
+h2{font-size:15px;margin:14px 0 0}h2:first-child{margin-top:0}
+#msg{min-height:20px;margin-top:8px;font-size:13px;color:var(--st)}
+.note{font-size:12px;color:var(--mute);margin-top:10px}
+.info{font:12.5px/1.6 "IBM Plex Mono",monospace;color:var(--mute);margin-top:8px}
+table{width:100%;border-collapse:collapse;font-size:13.5px;margin-top:8px}
+th,td{text-align:right;padding:5px 6px;border-bottom:1px solid var(--line)}th:first-child,td:first-child{text-align:left}
+th{color:var(--mute);font-weight:600}
+.bar{display:flex;height:12px;border-radius:6px;overflow:hidden;background:var(--line);margin-top:8px}
+.bar i{display:block;height:100%}
+.scroll{max-height:150px;overflow:auto}
+</style>
+</head>
+<body>
+<main>
+<h1>Manopla cardíaca: simulador de controle de batimentos</h1>
+<p class="sub">Modelo fictício (unidades abstratas). A cada minuto simulado, o controlador resolve uma infusão contínua de custo mínimo (mg/min de betabloqueador e de estimulante), mantendo a FC dentro da faixa segura e perto do alvo, conforme idade, perfil e esforço.</p>
+
+<div class="stats">
+<div class="stat"><span>FC atual</span><b id="bpm">–</b><span id="state" class="badge">Normal</span></div>
+<div class="stat"><span>Δ = FCALVO − FCATUAL</span><b id="delta">–</b><span id="dhint">–</span></div>
+<div class="stat"><span>Média de bpm</span><b id="mean">–</b><span id="tsim">0 min simulados</span></div>
+<div class="stat"><span>Tempo fora da faixa</span><b id="out">0%</b><span id="rng">–</span></div>
+</div>
+
+<div class="grid">
+<div>
+<div class="card">
+<h2>Frequência cardíaca (bpm)</h2><canvas id="c1" height="260" aria-label="Gráfico de batimentos"></canvas>
+<h2>Concentração no efeito (u.a.)</h2><canvas id="c2" height="100" aria-label="Gráfico de concentrações"></canvas>
+<div class="note">Vermelho: batimentos. Faixa verde: limites seguros. Tracejado: alvo. Azul: betabloqueador. Âmbar: estimulante.</div>
+</div>
+<div class="card">
+<h2>Consumo estratificado</h2>
+<table><thead><tr><th>Substância</th><th>Taxa (mg/min)</th><th>mg</th><th>%</th></tr></thead><tbody>
+<tr><td style="color:var(--bb)">Betabloqueador</td><td id="rb">0.00</td><td id="mb">0.0</td><td id="pb">0</td></tr>
+<tr><td style="color:var(--st)">Estimulante</td><td id="rs">0.00</td><td id="ms">0.0</td><td id="ps">0</td></tr>
+<tr><td><b>Total</b></td><td id="rt">0.00</td><td id="mt">0.0</td><td></td></tr></tbody></table>
+<div class="bar"><i id="barB" style="background:var(--bb);width:0"></i><i id="barS" style="background:var(--st);width:0"></i></div>
+<h2>Consumo acumulado ao longo do tempo (mg)</h2><canvas id="c3" height="110" aria-label="Consumo acumulado"></canvas>
+<div class="scroll"><table><thead><tr><th>Tempo</th><th>Beta (mg/min)</th><th>Estim. (mg/min)</th><th>FC</th><th>mg acum.</th></tr></thead><tbody id="rep"></tbody></table></div>
+</div>
+</div>
+
+<div>
+<div class="card">
+<h2>Paciente</h2>
+<label for="age">Idade (anos)<output id="agev"></output></label>
+<div class="row" style="margin-top:6px"><input type="number" id="age" min="6" max="80" value="35"></div>
+<div class="info" id="prof"></div>
+<label>Esforço</label>
+<div class="row" style="margin-top:6px"><button class="eff" data-e="b">Baixo</button><button class="eff on" data-e="m">Médio</button><button class="eff" data-e="a">Alto</button></div>
+<div class="info" id="zone"></div><div class="info" id="reach"></div>
+<label>Alvo de batimentos <output id="tgv"></output></label>
+<input type="range" id="tg" min="50" max="100" value="65">
+<label>FC espontânea (sem medicação) <output id="natv"></output></label>
+<input type="range" id="nat" min="40" max="200" value="150">
+<div class="row"><button id="bSpike">Pico de estresse</button></div>
+</div>
+
+<div class="card">
+<h2>Infusão contínua</h2>
+
+
+
+
+
+<div class="info" id="rates"></div>
+
+
+
+<div class="row"><button id="mAuto" class="on">Controlador ligado</button></div>
+<label>Velocidade <output id="spv">5×</output></label>
+<input type="range" id="sp" min="1" max="30" value="5">
+<div class="row"><button id="bPause">Pausar</button><button id="bReset">Reiniciar</button></div>
+<div class="note">Problema resolvido a cada minuto: min (u_beta + u_estim) sujeito a FC prevista dentro da faixa segura (restrição suavizada, com folga penalizada) ao longo de 15 min e |FC − FCALVO| ≤ 2 bpm ao fim, com 0 ≤ u ≤ 1,5 mg/min. Desligue o controlador para ver a FC sem medicação. Apenas demonstração; não use para decisões clínicas.</div>
+</div>
+</div>
+</div>
+</main>
+<script>
+const $=id=>document.getElementById(id),v=id=>+$(id).value;
+const T={c:{b:[104,128],m:[125,160],a:[156,182]},a:{b:[80,120],m:[97,150],a:[121,170]},i:{b:[70,96],m:[84,120],a:[105,136]}};
+const PN={c:'Criança',a:'Adulto',i:'Idoso'},EN={b:'baixo',m:'médio',a:'alto'};
+const P={kb:.03,ks:.05,ke:.15,Vb:5,Vs:8,ec:1,eb:.5,es:.35,maxRate:1.5,H:15,win:120,fcminPct:.4};
+let E='m',prof='a',FCMAX=185,FCMIN=74,LO=97,HI=150,TG=124,NATC=150,S;
+
+function refreshZone(){
+ const age=Math.min(80,Math.max(6,Math.round(v('age'))||35));
+ prof=age<=12?'c':age<60?'a':'i';
+ FCMAX=220-age;FCMIN=Math.round(P.fcminPct*FCMAX);
+ const[tl,th]=T[prof][E];LO=Math.max(tl,FCMIN);HI=Math.min(th,FCMAX);
+ const tg=$('tg');tg.min=LO;tg.max=HI;tg.value=Math.round((LO+HI)/2);TG=+tg.value;
+ const nat=$('nat');nat.min=FCMIN;nat.max=FCMAX;nat.value=Math.min(FCMAX,Math.max(FCMIN,+nat.value));
+ $('prof').innerHTML=`Perfil: ${PN[prof]}${age>=13&&age<20?' (13–19 usa tabela adulto)':''}<br>FCMAX = 220 − ${age} = ${FCMAX} bpm<br>FCMIN = ${P.fcminPct*100}% da FCMAX = ${FCMIN} bpm`;
+ $('zone').innerHTML=`Esforço ${EN[E]}, faixa segura: ${LO} a ${HI} bpm`;
+ $('rng').textContent=`faixa ${LO}–${HI} bpm`;$('tgv').textContent=TG+' bpm';$('natv').textContent=Math.round(+nat.value)+' bpm';
+}
+function reset(){
+ S={t:0,cb:0,ceb:0,cs:0,ces:0,hr:0,h:[],mb:0,ms:0,ub:0,us:0,lastRep:-1,sum:0,cnt:0,outT:0,nextDecision:0,spike:0,auto:S?S.auto:true,paused:S?S.paused:false};
+ S.hr=hr0();$('rep').innerHTML=''}
+const hr0=()=>Math.min(FCMAX,v('nat')+S.spike);
+const effect=(ceb,ces,base)=>base*(1-P.eb*ceb/(P.ec+ceb))*(1+P.es*ces/(P.ec+ces));
+function step(s,dt){s.cb-=P.kb*s.cb*dt;s.cs-=P.ks*s.cs*dt;s.ceb+=P.ke*(s.cb-s.ceb)*dt;s.ces+=P.ke*(s.cs-s.ces)*dt}
+function predict(ub,us,H=P.H){
+ const s={cb:S.cb,cs:S.cs,ceb:S.ceb,ces:S.ces},sp=S.spike;let viol=0,last=0;
+ for(let t=0;t<H;t+=.5){s.cb+=ub/P.Vb*.5;s.cs+=us/P.Vs*.5;step(s,.5);const h=effect(s.ceb,s.ces,Math.min(FCMAX,NATC+sp*Math.exp(-t/6)));viol+=(Math.max(0,h-(HI-1))+Math.max(0,LO+1-h))*.5;last=h}
+ return{viol,end:last}}
+/* min J = 1000*folga_segurança + 50*erro_alvo + (u_beta + u_estim): penalização exata, segurança > alvo > recursos */
+function controller(){
+ if(S.t<S.nextDecision)return;S.nextDecision=S.t+1;NATC=v('nat');
+ const tol=2,bl=Math.max(LO,TG-tol),bh=Math.min(HI,TG+tol),n=60,st=P.maxRate/n;
+ let best=null;
+ for(let i=0;i<=n;i++)for(let j=0;j<=n;j++){
+  const ub=i*st,us=j*st,p=predict(ub,us);
+  const J=1000*p.viol+50*Math.max(0,p.end-bh,bl-p.end)+ub+us;
+  if(!best||J<best.J)best={ub,us,J}}
+ S.ub=best.ub;S.us=best.us}
+function tick(dt){
+ S.cb+=S.ub/P.Vb*dt;S.cs+=S.us/P.Vs*dt;S.mb+=S.ub*dt;S.ms+=S.us*dt;step(S,dt);S.spike*=Math.exp(-dt/6);
+ const target=effect(S.ceb,S.ces,hr0());
+ S.hr+=(target-S.hr)*(1-Math.exp(-dt/.6))+(Math.random()-.5)*.25;
+ S.t+=dt;S.sum+=S.hr*dt;S.cnt+=dt;if(S.hr<LO||S.hr>HI)S.outT+=dt;
+ if(!S.h.length||S.t-S.h[S.h.length-1].t>=.5)S.h.push({t:S.t,hr:S.hr,b:S.ceb,s:S.ces,mb:S.mb,ms:S.ms});
+ if(S.h.length>1200)S.h.shift();
+ if(S.auto)controller();else{S.ub=0;S.us=0}
+ const k=Math.floor(S.t/10);
+ if(k!==S.lastRep){S.lastRep=k;const r=$('rep').insertRow(0);[k*10+' min',S.ub.toFixed(2),S.us.toFixed(2),Math.round(S.hr),(S.mb+S.ms).toFixed(1)].forEach(x=>r.insertCell().textContent=x)}}
+function css(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim()}
+function setup(c){const r=devicePixelRatio||1,w=c.clientWidth,h=+c.getAttribute('height');c.width=w*r;c.height=h*r;const x=c.getContext('2d');x.setTransform(r,0,0,r,0,0);x.clearRect(0,0,w,h);return[x,w,h]}
+const L=36,R=8,T0=8,B=20;
+function line(x,key,col,xr,yr,x0){x.strokeStyle=css(col);x.lineWidth=2;x.beginPath();let f=1;
+ for(const p of S.h){if(p.t<x0)continue;f?(x.moveTo(xr(p.t),yr(p[key])),f=0):x.lineTo(xr(p.t),yr(p[key]))}x.stroke()}
+function draw(){
+ let[x,w,h]=setup($('c1'));const x0=Math.max(0,S.t-P.win),xr=t=>L+(t-x0)/P.win*(w-L-R);
+ const ymin=30,ymax=Math.ceil((FCMAX+10)/20)*20,yr=b=>T0+(1-(b-ymin)/(ymax-ymin))*(h-T0-B);
+ x.fillStyle=css('--band');x.fillRect(L,yr(HI),w-L-R,yr(LO)-yr(HI));
+ x.font='11px IBM Plex Mono,monospace';x.fillStyle=css('--mute');x.strokeStyle=css('--line');x.lineWidth=1;
+ for(let b=40;b<=ymax;b+=20){x.beginPath();x.moveTo(L,yr(b));x.lineTo(w-R,yr(b));x.stroke();x.fillText(b,4,yr(b)+4)}
+ for(let t=Math.ceil(x0/20)*20;t<=x0+P.win;t+=20)x.fillText(t+'m',xr(t)-8,h-5);
+ x.setLineDash([5,4]);x.strokeStyle=css('--ok');x.beginPath();x.moveTo(L,yr(TG));x.lineTo(w-R,yr(TG));x.stroke();x.setLineDash([]);
+ line(x,'hr','--hr',xr,yr,x0);
+ [x,w,h]=setup($('c2'));let ym=2,y2=c=>T0+(1-Math.min(c,ym)/ym)*(h-T0-B);
+ x.strokeStyle=css('--line');x.beginPath();x.moveTo(L,y2(0));x.lineTo(w-R,y2(0));x.stroke();
+ line(x,'b','--bb',xr,y2,x0);line(x,'s','--st',xr,y2,x0);
+ x.fillStyle=css('--mute');x.font='11px IBM Plex Mono,monospace';x.fillText('2.0',4,y2(2)+10);x.fillText('0',4,y2(0));
+ [x,w,h]=setup($('c3'));ym=Math.max(10,Math.ceil((S.mb+S.ms)/10)*10);
+ x.strokeStyle=css('--line');x.beginPath();x.moveTo(L,y2(0));x.lineTo(w-R,y2(0));x.stroke();
+ line(x,'mb','--bb',xr,y2,x0);line(x,'ms','--st',xr,y2,x0);
+ x.fillStyle=css('--mute');x.font='11px IBM Plex Mono,monospace';x.fillText(ym,4,y2(ym)+10);x.fillText('0',4,y2(0));
+}
+function ui(){
+ const hr=S.hr;$('bpm').textContent=Math.round(hr);
+ const b=$('state');b.className='badge';
+ if(hr<LO){b.textContent=hr<FCMIN?'Bradicardia':'Abaixo da faixa';b.classList.add('bad')}else if(hr>HI){b.textContent='Acima da faixa';b.classList.add('bad')}
+ else if(hr<LO+5||hr>HI-5){b.textContent='Perto do limite';b.classList.add('warn')}else b.textContent='Dentro da faixa';
+ const d=TG-hr;$('delta').textContent=(d>0?'+':'')+Math.round(d);
+ $('dhint').textContent=d<-3?'reduzir: betabloqueador':d>3?'elevar: estimulante':'no alvo';
+ $('mean').textContent=S.cnt?(S.sum/S.cnt).toFixed(1):'–';$('tsim').textContent=S.t.toFixed(0)+' min simulados';
+ $('out').textContent=S.cnt?(100*S.outT/S.cnt).toFixed(0)+'%':'0%';
+ const tot=S.mb+S.ms,pb=tot?100*S.mb/tot:0;
+ {const cm=P.maxRate/(P.Vb*P.kb),sm=P.maxRate/(P.Vs*P.ks),nt=hr0(),rl=nt*(1-P.eb*cm/(1+cm)),rh=nt*(1+P.es*sm/(1+sm));$('reach').innerHTML=`Alcance dos atuadores: ${Math.round(rl)} a ${Math.round(rh)} bpm`+(rl>HI-1||rh<LO+1?'<br><b style="color:var(--hr)">Faixa inatingível com esta FC espontânea</b>':'')}
+ $('rb').textContent=S.ub.toFixed(2);$('rs').textContent=S.us.toFixed(2);$('rt').textContent=(S.ub+S.us).toFixed(2);
+ $('rates').innerHTML=`Taxa de betabloqueador: ${S.ub.toFixed(2)} mg/min<br>Taxa de estimulante: ${S.us.toFixed(2)} mg/min`;
+ $('mb').textContent=S.mb.toFixed(1);$('ms').textContent=S.ms.toFixed(1);$('mt').textContent=tot.toFixed(1);
+ $('pb').textContent=pb.toFixed(0);$('ps').textContent=tot?(100-pb).toFixed(0):0;
+ $('barB').style.width=pb+'%';$('barS').style.width=(tot?100-pb:0)+'%'}
+let prev=performance.now(),fr=0;
+function loop(now){const dt=Math.min(.1,(now-prev)/1000);prev=now;
+ if(!S.paused){let sim=dt*v('sp');while(sim>0){const d=Math.min(.05,sim);tick(d);sim-=d}}
+ if(++fr%2===0){draw();ui()}requestAnimationFrame(loop)}
+const bind=(id,out,fmt)=>$(id).addEventListener('input',()=>$(out).textContent=fmt($(id).value));
+bind('sp','spv',x=>x+'×');
+$('tg').addEventListener('input',()=>{TG=v('tg');$('tgv').textContent=TG+' bpm'});
+$('nat').addEventListener('input',()=>$('natv').textContent=Math.round(v('nat'))+' bpm');
+$('age').addEventListener('input',()=>{refreshZone();reset()});
+document.querySelectorAll('.eff').forEach(b=>b.onclick=()=>{E=b.dataset.e;document.querySelectorAll('.eff').forEach(x=>x.classList.toggle('on',x===b));refreshZone();reset()});
+$('bSpike').onclick=()=>{S.spike+=35};
+$('bPause').onclick=()=>{S.paused=!S.paused;$('bPause').textContent=S.paused?'Retomar':'Pausar'};
+$('bReset').onclick=reset;
+function mode(a){S.auto=a;$('mAuto').classList.toggle('on',a);$('mAuto').textContent=a?'Controlador ligado':'Controlador desligado'}
+$('mAuto').onclick=()=>mode(!S.auto);
+refreshZone();reset();requestAnimationFrame(loop);
+</script>
+</body>
+</html>
